@@ -1,106 +1,205 @@
 #!/bin/bash
 # =============================================================================
-# chaseworkslab — Proxmox Mac Mini Post-Install Script
-# Run this on each node immediately after a fresh Proxmox VE install.
+# ChaseWorksLab — Proxmox VE Post-Install Script
 #
-# Usage: bash post-install.sh <node-number>
-# Example: bash post-install.sh 1
+# Repo:   https://github.com/chaserbot/chaseworkslab-proxmox
+# Path:   proxmox/post-install.sh   (lives inside the proxmox/ subfolder)
+# Run:    bash proxmox/post-install.sh        ← from repo root
+#         bash post-install.sh               ← if already inside proxmox/
 #
-# What this script does:
-#  1. Sets hostname
-#  2. Fixes Proxmox repos (removes enterprise nag, enables no-subscription)
-#  3. Disables subscription nag in the web UI
-#  4. Updates all packages
-#  5. Enables auto power-on after outage (Mac Mini specific setpci fix)
-#  6. Ensures applesmc + coretemp kernel modules load at boot
-#  7. Installs and enables mbpfan for fan control
-#  8. Installs QEMU guest agent (best practice)
-#  9. Enables NTP time sync
-# 10. Disables HA services (single-node until cluster is formed)
-# 11. Mounts NFS storage (LittlePeggy + BigPeggy from Mac Mini #1)
+# Supports: Proxmox VE 7, 8, 9+ (auto-detects Debian codename)
+#
+# Steps:
+#  1.  Set hostname
+#  2.  Fix Proxmox repos (disable enterprise, enable no-subscription)
+#  3.  Disable subscription nag in web UI
+#  4.  Update all packages
+#  5.  Configure auto power-on after outage (Mac Mini — setpci)
+#  6.  Load applesmc + coretemp modules at boot
+#  7.  Install + configure mbpfan (fan control)
+#  8.  Install QEMU guest agent
+#  9.  Enable NTP time sync
+# 10.  Disable HA services (re-enable after clustering)
+# 11.  Mount NFS storage (LittlePeggy + BigPeggy via MM1)
 # =============================================================================
+set -euo pipefail
 
-set -e
+# ── Colors (only when stdout is a terminal) ───────────────────────────────────
+if [[ -t 1 ]]; then
+  BOLD='\033[1m';   DIM='\033[2m';    RESET='\033[0m'
+  BCYAN='\033[1;36m'; WHITE='\033[1;37m'
+  BGREEN='\033[1;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
+else
+  BOLD=''; DIM=''; RESET=''
+  BCYAN=''; WHITE=''; BGREEN=''; YELLOW=''; RED=''
+fi
 
-# --- Validate input -----------------------------------------------------------
-NODE_NUM=${1:?"Usage: $0 <node-number> (e.g. $0 1)"}
-if [[ ! "$NODE_NUM" =~ ^[1-3]$ ]]; then
-  echo "ERROR: Node number must be 1, 2, or 3."
+TOTAL_STEPS=11
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+bar()  { echo -e "\n${BCYAN}${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
+step() { bar; echo -e "  ${BCYAN}${BOLD}[${1}/${TOTAL_STEPS}]${RESET} ${WHITE}${BOLD}${2}${RESET}"; bar; }
+ok()   { echo -e "  ${BGREEN}✓${RESET}  ${1}"; }
+warn() { echo -e "  ${YELLOW}⚠${RESET}  ${1}"; }
+info() { echo -e "  ${DIM}→${RESET}  ${1}"; }
+
+# ── Root check ────────────────────────────────────────────────────────────────
+if [[ $EUID -ne 0 ]]; then
+  echo -e "\n  ${RED}${BOLD}Error: this script must be run as root.${RESET}\n"
+  exit 1
+fi
+
+# ── Detect system ─────────────────────────────────────────────────────────────
+DEBIAN_CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
+DEBIAN_VERSION_ID=$(. /etc/os-release && echo "$VERSION_ID")
+PVE_VERSION=$(pveversion 2>/dev/null | grep -oP 'pve-manager/\K[0-9.]+' || echo "unknown")
+
+# ── Banner ────────────────────────────────────────────────────────────────────
+clear
+echo ""
+echo -e "${BCYAN}${BOLD}"
+echo "  ╔════════════════════════════════════════════════════════════╗"
+echo "  ║                                                            ║"
+echo "  ║   C H A S E W O R K S L A B                               ║"
+echo "  ║   Proxmox VE  ·  Post-Install Script                      ║"
+echo "  ║                                                            ║"
+echo -e "  ╚════════════════════════════════════════════════════════════╝${RESET}"
+echo ""
+echo -e "  ${DIM}Proxmox:${RESET}  ${WHITE}${PVE_VERSION}${RESET}"
+echo -e "  ${DIM}Debian:${RESET}   ${WHITE}${DEBIAN_CODENAME} (${DEBIAN_VERSION_ID})${RESET}"
+echo ""
+
+# ── Node number ───────────────────────────────────────────────────────────────
+# Accept as CLI arg (for scripted use) or prompt interactively
+if [[ $# -ge 1 ]]; then
+  NODE_NUM="$1"
+else
+  echo -e "  ${WHITE}${BOLD}Which node is this?${RESET}  ${DIM}(1 = pve1.chaseworkslab.com, 2 = pve2, etc.)${RESET}"
+  echo ""
+  read -rp "  Node number: " NODE_NUM
+fi
+
+# Validate: positive integer 1–99
+if [[ ! "$NODE_NUM" =~ ^[1-9][0-9]?$ ]]; then
+  echo -e "\n  ${RED}${BOLD}Error: node number must be between 1 and 99.${RESET}\n"
   exit 1
 fi
 
 HOSTNAME="pve${NODE_NUM}.chaseworkslab.com"
-STATIC_IP="10.27.27.10${NODE_NUM}"  # Results in .101, .102, .103
+STATIC_IP="10.27.27.$((100 + NODE_NUM))"  # Node 1→.101, 2→.102, … 9→.109, 10→.110
 
+# ── Confirm ───────────────────────────────────────────────────────────────────
 echo ""
-echo "=============================================="
-echo "  chaseworkslab Proxmox Post-Install Script"
-echo "  Node: $HOSTNAME"
-echo "  IP:   $STATIC_IP (verify this is correct)"
-echo "=============================================="
+bar
+echo -e "  ${WHITE}${BOLD}Node:${RESET}  ${HOSTNAME}"
+echo -e "  ${WHITE}${BOLD}IP:${RESET}    ${STATIC_IP}  ${DIM}(confirm this matches your static assignment)${RESET}"
+bar
 echo ""
-read -rp "Press ENTER to continue or Ctrl+C to abort..."
+read -rp "  Press ENTER to start, or Ctrl+C to abort... "
 
-# --- 1. Hostname --------------------------------------------------------------
-echo ""
-echo "[1/11] Setting hostname..."
+# ── Helper: disable a DEB822 .sources file ────────────────────────────────────
+# Adds "Enabled: no" to the first stanza if not already present.
+disable_deb822() {
+  local file="$1"
+  [[ -f "$file" ]] || return 1
+  if grep -q "^Enabled: no" "$file"; then
+    info "Already disabled: $(basename "$file")"
+  elif grep -q "^Enabled:" "$file"; then
+    sed -i 's/^Enabled:.*/Enabled: no/' "$file"
+    ok "Disabled: $(basename "$file")"
+  else
+    # No Enabled: field present — insert before first Types: line
+    sed -i '0,/^Types:/s/^Types:/Enabled: no\nTypes:/' "$file"
+    ok "Disabled: $(basename "$file")"
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. Hostname
+# ──────────────────────────────────────────────────────────────────────────────
+step 1 "Setting hostname"
+
 hostnamectl set-hostname "$HOSTNAME"
-sed -i "s/^127\.0\.1\.1.*/127.0.1.1 $HOSTNAME/" /etc/hosts
-echo "  Done: hostname set to $HOSTNAME"
 
-# --- 2. Fix Proxmox repositories ----------------------------------------------
-echo ""
-echo "[2/11] Fixing Proxmox repositories..."
-
-# Disable enterprise repo (requires paid subscription)
-if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
-  sed -i 's/^deb/# deb/' /etc/apt/sources.list.d/pve-enterprise.list
+# Update or add the 127.0.1.1 entry in /etc/hosts
+if grep -q "^127\.0\.1\.1" /etc/hosts; then
+  sed -i "s/^127\.0\.1\.1.*/127.0.1.1 $HOSTNAME/" /etc/hosts
+else
+  echo "127.0.1.1 $HOSTNAME" >> /etc/hosts
 fi
 
-# Disable Ceph enterprise repo if present
-if [ -f /etc/apt/sources.list.d/ceph.list ]; then
-  sed -i 's/^deb/# deb/' /etc/apt/sources.list.d/ceph.list
+ok "Hostname set to ${HOSTNAME}"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 2. Fix Proxmox repositories
+# ──────────────────────────────────────────────────────────────────────────────
+step 2 "Fixing Proxmox repositories"
+info "Detected codename: ${DEBIAN_CODENAME}"
+
+# -- Disable enterprise PVE repo --
+# PVE 9+ uses DEB822 .sources format; PVE 7/8 used .list format.
+if [[ -f /etc/apt/sources.list.d/pve-enterprise.sources ]]; then
+  disable_deb822 /etc/apt/sources.list.d/pve-enterprise.sources
+elif [[ -f /etc/apt/sources.list.d/pve-enterprise.list ]]; then
+  sed -i 's/^deb /# deb /' /etc/apt/sources.list.d/pve-enterprise.list
+  ok "Enterprise PVE repo disabled (pve-enterprise.list)"
+else
+  warn "No enterprise PVE repo file found — may already be removed"
 fi
 
-# Enable no-subscription repo
+# -- Disable Ceph enterprise repo --
+if [[ -f /etc/apt/sources.list.d/ceph.sources ]]; then
+  disable_deb822 /etc/apt/sources.list.d/ceph.sources
+elif [[ -f /etc/apt/sources.list.d/ceph.list ]]; then
+  sed -i 's/^deb /# deb /' /etc/apt/sources.list.d/ceph.list
+  ok "Ceph enterprise repo disabled (ceph.list)"
+else
+  info "No Ceph enterprise repo found — skipping"
+fi
+
+# -- Enable no-subscription repo using auto-detected codename --
 cat > /etc/apt/sources.list.d/pve-no-subscription.list <<EOF
-deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription
+deb http://download.proxmox.com/debian/pve ${DEBIAN_CODENAME} pve-no-subscription
 EOF
+ok "No-subscription repo enabled (${DEBIAN_CODENAME})"
 
-# Suppress non-free firmware warning (Debian bookworm)
+# -- Suppress non-free firmware warnings (codename-agnostic filename) --
 echo 'APT::Get::Update::SourceListWarnings::NonFreeFirmware "false";' \
-  > /etc/apt/apt.conf.d/no-bookworm-firmware.conf
+  > /etc/apt/apt.conf.d/no-firmware-nag.conf
+ok "Firmware nag suppressed"
 
-echo "  Done: repos configured"
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. Disable subscription nag
+# ──────────────────────────────────────────────────────────────────────────────
+step 3 "Disabling subscription nag"
 
-# --- 3. Disable subscription nag ----------------------------------------------
-echo ""
-echo "[3/11] Disabling subscription nag..."
 JSFILE="/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
-if [ -f "$JSFILE" ]; then
+if [[ -f "$JSFILE" ]]; then
   if grep -q "No valid subscription" "$JSFILE"; then
     sed -i "s/res === null || res === undefined ||/false || false ||/" "$JSFILE"
-    echo "  Done: subscription nag disabled"
+    ok "Subscription nag disabled"
   else
-    echo "  Already patched or pattern not found — skipping"
+    info "Pattern not found — already patched or PVE version changed"
   fi
 else
-  echo "  WARNING: proxmoxlib.js not found — skipping nag patch"
+  warn "proxmoxlib.js not found — skipping nag patch"
 fi
 
-# --- 4. Update packages -------------------------------------------------------
-echo ""
-echo "[4/11] Updating packages..."
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. Update packages
+# ──────────────────────────────────────────────────────────────────────────────
+step 4 "Updating packages"
+
 apt-get update -q
 DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -q
-echo "  Done: packages updated"
+ok "Packages updated"
 
-# --- 5. Auto power-on after power outage (Mac Mini specific) ------------------
-echo ""
-echo "[5/11] Configuring auto power-on after outage..."
-# The setpci command enables the Mac Mini to power on automatically when
-# power is restored after an outage. Without this the Mac Mini stays off.
-# Persisted via a systemd service so it survives reboots.
+# ──────────────────────────────────────────────────────────────────────────────
+# 5. Auto power-on after outage (Mac Mini specific)
+# ──────────────────────────────────────────────────────────────────────────────
+step 5 "Configuring auto power-on after outage"
+info "Mac Mini specific: setpci tells the PCIe bridge to wake on power restore"
+
 cat > /etc/systemd/system/mac-autoboot.service <<EOF
 [Unit]
 Description=Mac Mini Auto Power-On After Outage
@@ -118,109 +217,126 @@ EOF
 systemctl daemon-reload
 systemctl enable mac-autoboot.service
 systemctl start mac-autoboot.service
-echo "  Done: mac-autoboot service enabled"
+ok "mac-autoboot service enabled and running"
 
-# --- 6. Load applesmc + coretemp kernel modules at boot -----------------------
-echo ""
-echo "[6/11] Configuring kernel modules for applesmc and coretemp..."
-if ! grep -q "applesmc" /etc/modules; then
-  echo "applesmc" >> /etc/modules
-fi
-if ! grep -q "coretemp" /etc/modules; then
-  echo "coretemp" >> /etc/modules
-fi
-modprobe applesmc 2>/dev/null || echo "  WARNING: applesmc failed to load now (will load after reboot)"
-modprobe coretemp 2>/dev/null || echo "  WARNING: coretemp failed to load now (will load after reboot)"
-echo "  Done: kernel modules configured"
+# ──────────────────────────────────────────────────────────────────────────────
+# 6. Kernel modules: applesmc + coretemp
+# ──────────────────────────────────────────────────────────────────────────────
+step 6 "Loading applesmc + coretemp kernel modules"
 
-# --- 7. Install and enable mbpfan (fan control) -------------------------------
-echo ""
-echo "[7/11] Installing mbpfan..."
+for mod in applesmc coretemp; do
+  if ! grep -q "^${mod}$" /etc/modules; then
+    echo "$mod" >> /etc/modules
+    info "Added ${mod} to /etc/modules"
+  fi
+  modprobe "$mod" 2>/dev/null \
+    && ok "${mod} loaded" \
+    || warn "${mod} failed to load now — will load after reboot"
+done
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 7. mbpfan (fan control)
+# ──────────────────────────────────────────────────────────────────────────────
+step 7 "Installing mbpfan (fan control)"
+
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q mbpfan
 
-# Sensible config for a headless Mac Mini server
 cat > /etc/mbpfan.conf <<EOF
 [general]
 # Temperatures in Celsius
-# low_temp  = fans run at min speed below this
-# high_temp = fans ramp up toward max speed
-# max_temp  = fans run at full speed
-min_fan_speed = 2000
-max_fan_speed = 6200
-low_temp  = 55
-high_temp = 65
-max_temp  = 80
+# low_temp  — fans run at min speed below this
+# high_temp — fans ramp toward max speed above this
+# max_temp  — fans run at full speed
+min_fan_speed    = 2000
+max_fan_speed    = 6200
+low_temp         = 55
+high_temp        = 65
+max_temp         = 80
 polling_interval = 7
 EOF
 
 systemctl enable mbpfan
 systemctl start mbpfan
-echo "  Done: mbpfan installed and running"
+ok "mbpfan installed and running (min 2000 RPM, max 6200 RPM)"
 
-# --- 8. QEMU Guest Agent ------------------------------------------------------
-echo ""
-echo "[8/11] Installing QEMU guest agent..."
+# ──────────────────────────────────────────────────────────────────────────────
+# 8. QEMU guest agent
+# ──────────────────────────────────────────────────────────────────────────────
+step 8 "Installing QEMU guest agent"
+
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q qemu-guest-agent
 systemctl enable qemu-guest-agent
 systemctl start qemu-guest-agent
-echo "  Done: qemu-guest-agent installed"
+ok "qemu-guest-agent installed and running"
 
-# --- 9. NTP time sync ---------------------------------------------------------
-echo ""
-echo "[9/11] Ensuring NTP time sync is active..."
+# ──────────────────────────────────────────────────────────────────────────────
+# 9. NTP time sync
+# ──────────────────────────────────────────────────────────────────────────────
+step 9 "Enabling NTP time sync"
+
 systemctl enable systemd-timesyncd
 systemctl start systemd-timesyncd
 timedatectl set-ntp true
-echo "  Done: NTP enabled"
+ok "NTP enabled via systemd-timesyncd"
 
-# --- 10. Disable HA services (re-enable after cluster is formed) --------------
-echo ""
-echo "[10/11] Disabling HA services (single-node mode)..."
-# HA services cause log spam and resource waste on standalone nodes.
-# Re-enable with: systemctl enable --now pve-ha-lrm pve-ha-crm corosync
-systemctl disable --now pve-ha-lrm 2>/dev/null || true
-systemctl disable --now pve-ha-crm 2>/dev/null || true
-echo "  Done: HA services disabled (re-enable after cluster formation)"
+# ──────────────────────────────────────────────────────────────────────────────
+# 10. Disable HA services (single-node until cluster is formed)
+# ──────────────────────────────────────────────────────────────────────────────
+step 10 "Disabling HA services (single-node mode)"
+info "Re-enable after cluster is formed:"
+info "  systemctl enable --now pve-ha-lrm pve-ha-crm corosync"
 
-# --- 11. Mount NFS storage (LittlePeggy + BigPeggy) --------------------------
-echo ""
-echo "[11/11] Mounting NFS storage from Mac Mini #1 (10.27.27.22)..."
-# LittlePeggy = Promise Pegasus 2 R8 (TB2, 20Gbps)
-# BigPeggy    = Promise Pegasus 3 R8 (TB3, capped at 20Gbps via Mac Mini TB2 chain)
-# Both hosted on MM1 (macOS) and shared over NFS to all Proxmox nodes.
-# NOTE: Volume names may differ — confirm in Disk Utility on MM1 after mounting.
+for svc in pve-ha-lrm pve-ha-crm; do
+  systemctl disable --now "$svc" 2>/dev/null \
+    && ok "${svc} disabled" \
+    || info "${svc} was not running — skipping"
+done
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 11. NFS storage mounts (LittlePeggy + BigPeggy from MM1)
+# ──────────────────────────────────────────────────────────────────────────────
+step 11 "Mounting NFS storage from MM1 (10.27.27.22)"
+info "LittlePeggy = Promise Pegasus 2 R8 (TB2) → /mnt/littlepeggy"
+info "BigPeggy    = Promise Pegasus 3 R8 (TB3, capped at TB2) → /mnt/bigpeggy"
+info "NOTE: Confirm exact volume names in Disk Utility on MM1 if mounts fail"
+
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q nfs-common
-
 mkdir -p /mnt/littlepeggy /mnt/bigpeggy
 
-# Add to fstab if not already present
 if ! grep -q "littlepeggy" /etc/fstab; then
   echo "10.27.27.22:/Volumes/LittlePeggy  /mnt/littlepeggy  nfs  defaults,_netdev,nofail  0  0" >> /etc/fstab
+  ok "LittlePeggy added to fstab"
+else
+  info "LittlePeggy already in fstab — skipping"
 fi
+
 if ! grep -q "bigpeggy" /etc/fstab; then
   echo "10.27.27.22:/Volumes/BigPeggy  /mnt/bigpeggy  nfs  defaults,_netdev,nofail  0  0" >> /etc/fstab
+  ok "BigPeggy added to fstab"
+else
+  info "BigPeggy already in fstab — skipping"
 fi
 
-# Attempt to mount now — silently skips if MM1 is offline
-mount -a 2>/dev/null || echo "  WARNING: mount -a failed — MM1 may be offline. Mounts will activate on next boot once MM1 is up."
-echo "  Done: NFS mounts configured (LittlePeggy + BigPeggy)"
-echo "  Verify with: df -h | grep mnt"
+mount -a 2>/dev/null \
+  && ok "NFS mounts active — verify with: df -h | grep mnt" \
+  || warn "mount -a failed — MM1 may be offline. Mounts activate on next boot once MM1 is up."
 
-# --- Done ---------------------------------------------------------------------
+# ── Done ──────────────────────────────────────────────────────────────────────
+bar
 echo ""
-echo "=============================================="
-echo "  Post-install complete for $HOSTNAME"
-echo "=============================================="
+echo -e "  ${BGREEN}${BOLD}✓ All ${TOTAL_STEPS} steps complete for ${HOSTNAME}${RESET}"
 echo ""
-echo "  NEXT STEPS:"
-echo "  1. Reboot this node:              reboot"
-echo "  2. After reboot, verify fans:     systemctl status mbpfan"
-echo "  3. Verify auto-boot service:      systemctl status mac-autoboot"
-echo "  4. Verify NFS mounts:             df -h | grep mnt"
-echo "  5. Repeat on the next node before forming the cluster"
+bar
 echo ""
-echo "  AFTER ALL 3 NODES ARE READY:"
-echo "   - Form the cluster from Node 1 (see proxmox/cluster-setup.md)"
-echo "   - Register NFS storage in Proxmox UI (see proxmox/storage-setup.md)"
-echo "   - Re-enable HA if desired after clustering"
+echo -e "  ${WHITE}${BOLD}Immediate next steps:${RESET}"
+echo -e "  ${DIM}1.${RESET}  Reboot this node              ${WHITE}reboot${RESET}"
+echo -e "  ${DIM}2.${RESET}  After reboot, check fans      ${WHITE}systemctl status mbpfan${RESET}"
+echo -e "  ${DIM}3.${RESET}  Check auto-boot service       ${WHITE}systemctl status mac-autoboot${RESET}"
+echo -e "  ${DIM}4.${RESET}  Check NFS mounts              ${WHITE}df -h | grep mnt${RESET}"
+echo -e "  ${DIM}5.${RESET}  Repeat on next node before forming cluster"
+echo ""
+echo -e "  ${WHITE}${BOLD}After all nodes are ready:${RESET}"
+echo -e "  ${DIM}→${RESET}  Form cluster from Node 1      ${WHITE}see proxmox/cluster-setup.md${RESET}"
+echo -e "  ${DIM}→${RESET}  Register NFS in Proxmox UI    ${WHITE}see proxmox/storage-setup.md${RESET}"
+echo -e "  ${DIM}→${RESET}  Re-enable HA after clustering ${DIM}(currently disabled)${RESET}"
 echo ""
