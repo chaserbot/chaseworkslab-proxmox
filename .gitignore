@@ -1,0 +1,5 @@
+*.env
+.env*
+secrets/
+passwords.txt
+.DS_Store
