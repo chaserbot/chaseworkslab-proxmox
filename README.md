@@ -29,9 +29,9 @@ The goal: if the house burned down and new hardware showed up, this repo is ever
 | Device | IP |
 |---|---|
 | Mac Mini #1 (macOS) | 10.27.27.22 |
-| Mac Mini #2 (pve1) | 10.27.27.31 |
-| Mac Mini #3 (pve2) | 10.27.27.32 |
-| Mac Mini #4 (pve3) | 10.27.27.33 |
+| Mac Mini #2 (pve1) | 10.27.27.101 |
+| Mac Mini #3 (pve2) | 10.27.27.102 |
+| Mac Mini #4 (pve3) | 10.27.27.103 |
 
 Internal domain: `chaseworkslab.com`
 
@@ -41,25 +41,25 @@ Internal domain: `chaseworkslab.com`
 
 ```
 chaseworkslab-homelab/
-├── README.md                  ← You are here
-├── .gitignore                 ← Secrets and .env files excluded
+├── README.md ← You are here
+├── .gitignore ← Secrets and .env files excluded
 ├── proxmox/
-│   ├── post-install.sh        ← Run on each node after fresh Proxmox install
-│   ├── cluster-setup.md       ← How to form the 3-node cluster
-│   └── storage-setup.md       ← How to mount Pegasus NFS on all nodes
-├── services/                  ← One folder per self-hosted service
-│   ├── jellyfin/
-│   │   ├── docker-compose.yml
-│   │   └── README.md
-│   ├── arr-stack/
-│   │   ├── docker-compose.yml
-│   │   └── README.md
-│   └── ...
+│ ├── post-install.sh ← Run on each node after fresh Proxmox install
+│ ├── cluster-setup.md ← How to form the 3-node cluster
+│ └── storage-setup.md ← How to mount Pegasus NFS on all nodes
+├── services/ ← One folder per self-hosted service
+│ ├── jellyfin/
+│ │ ├── docker-compose.yml
+│ │ └── README.md
+│ ├── arr-stack/
+│ │ ├── docker-compose.yml
+│ │ └── README.md
+│ └── ...
 ├── network/
-│   ├── dns-records.md         ← All internal DNS entries
-│   └── tailscale-setup.md     ← Remote access setup
+│ ├── dns-records.md ← All internal DNS entries
+│ └── tailscale-setup.md ← Remote access setup
 └── scripts/
-    └── ...
+└── ...
 ```
 
 ---
@@ -71,7 +71,7 @@ chaseworkslab-homelab/
 3. Run the post-install script:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/chaserbot/workslab-proxmox/main/proxmox/post-install.sh) <node-number>
+bash <(curl -fsSL https://raw.githubusercontent.com/chaserbot/chaseworkslab-proxmox/main/proxmox/post-install.sh) <node-number>
 ```
 
 4. Reboot
