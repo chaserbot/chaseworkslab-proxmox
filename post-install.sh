@@ -3,9 +3,8 @@
 # ChaseWorksLab — Proxmox VE Post-Install Script
 #
 # Repo:   https://github.com/chaserbot/chaseworkslab-proxmox
-# Path:   proxmox/post-install.sh   (lives inside the proxmox/ subfolder)
-# Run:    bash proxmox/post-install.sh        ← from repo root
-#         bash post-install.sh               ← if already inside proxmox/
+# Path:   post-install.sh   (repo root — no subfolders)
+# Run:    bash post-install.sh
 #
 # Supports: Proxmox VE 7, 8, 9+ (auto-detects Debian codename)
 #
@@ -207,7 +206,7 @@ After=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/sbin/setpci -s 0:3.0 0x7b.b=0x20
+ExecStart=/usr/bin/setpci -s 0:3.0 0x7b.b=0x20
 RemainAfterExit=yes
 
 [Install]
@@ -336,7 +335,7 @@ echo -e "  ${DIM}4.${RESET}  Check NFS mounts              ${WHITE}df -h | grep 
 echo -e "  ${DIM}5.${RESET}  Repeat on next node before forming cluster"
 echo ""
 echo -e "  ${WHITE}${BOLD}After all nodes are ready:${RESET}"
-echo -e "  ${DIM}→${RESET}  Form cluster from Node 1      ${WHITE}see proxmox/cluster-setup.md${RESET}"
-echo -e "  ${DIM}→${RESET}  Register NFS in Proxmox UI    ${WHITE}see proxmox/storage-setup.md${RESET}"
+echo -e "  ${DIM}→${RESET}  Form cluster from Node 1      ${WHITE}see cluster-setup.md${RESET}"
+echo -e "  ${DIM}→${RESET}  Register NFS in Proxmox UI    ${WHITE}see storage-setup.md${RESET}"
 echo -e "  ${DIM}→${RESET}  Re-enable HA after clustering ${DIM}(currently disabled)${RESET}"
 echo ""
