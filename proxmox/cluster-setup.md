@@ -63,7 +63,7 @@ systemctl enable --now pve-ha-lrm pve-ha-crm corosync
 
 ## Step 5 — Mount Pegasus shared storage
 
-See `proxmox/storage-setup.md` for NFS mount instructions.
+See `storage-setup.md` for NFS mount instructions.
 
 Once the NFS share is mounted, add it in the Proxmox UI:
 Datacenter → Storage → Add → NFS

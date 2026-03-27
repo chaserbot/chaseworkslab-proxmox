@@ -37,13 +37,10 @@ Run on each node (or add to /etc/fstab for persistence):
 ```bash
 # Test mount first
 mkdir -p /mnt/pegasus
-mount -t nfs 10.27.27.X:/Volumes/Pegasus /mnt/pegasus
+mount -t nfs 10.27.27.22:/Volumes/Pegasus /mnt/pegasus
 
 # If that works, make it persistent
-echo "10.27.27.X:/Volumes/Pegasus /mnt/pegasus nfs defaults,_netdev 0 0" >> /etc/fstab
-```
-
-> Replace `10.27.27.X` with Mac Mini #1's actual static IP.
+echo "10.27.27.22:/Volumes/Pegasus /mnt/pegasus nfs defaults,_netdev 0 0" >> /etc/fstab
 
 ---
 
@@ -54,7 +51,7 @@ In the Proxmox web UI:
 1. Datacenter → Storage → Add → NFS
 2. Fill in:
    - **ID:** `pegasus`
-   - **Server:** `10.27.27.X` (Mac Mini #1 IP)
+   - **Server:** `10.27.27.22` (Mac Mini #1 IP)
    - **Export:** `/Volumes/Pegasus`
    - **Content:** Disk image, Container, ISO, Backup — check all that apply
 3. Click Add
