@@ -17,6 +17,7 @@
 #  8. Installs QEMU guest agent (best practice)
 #  9. Enables NTP time sync
 # 10. Disables HA services (single-node until cluster is formed)
+# 11. Mounts NFS storage (LittlePeggy + BigPeggy from Mac Mini #1)
 # =============================================================================
 
 set -e
@@ -33,23 +34,23 @@ STATIC_IP="10.27.27.10${NODE_NUM}"  # Results in .101, .102, .103
 
 echo ""
 echo "=============================================="
-echo " chaseworkslab Proxmox Post-Install Script"
-echo " Node: $HOSTNAME"
-echo " IP:   $STATIC_IP (verify this is correct)"
+echo "  chaseworkslab Proxmox Post-Install Script"
+echo "  Node: $HOSTNAME"
+echo "  IP:   $STATIC_IP (verify this is correct)"
 echo "=============================================="
 echo ""
 read -rp "Press ENTER to continue or Ctrl+C to abort..."
 
 # --- 1. Hostname --------------------------------------------------------------
 echo ""
-echo "[1/10] Setting hostname..."
+echo "[1/11] Setting hostname..."
 hostnamectl set-hostname "$HOSTNAME"
 sed -i "s/^127\.0\.1\.1.*/127.0.1.1 $HOSTNAME/" /etc/hosts
 echo "  Done: hostname set to $HOSTNAME"
 
 # --- 2. Fix Proxmox repositories ----------------------------------------------
 echo ""
-echo "[2/10] Fixing Proxmox repositories..."
+echo "[2/11] Fixing Proxmox repositories..."
 
 # Disable enterprise repo (requires paid subscription)
 if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
@@ -74,7 +75,7 @@ echo "  Done: repos configured"
 
 # --- 3. Disable subscription nag ----------------------------------------------
 echo ""
-echo "[3/10] Disabling subscription nag..."
+echo "[3/11] Disabling subscription nag..."
 JSFILE="/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
 if [ -f "$JSFILE" ]; then
   if grep -q "No valid subscription" "$JSFILE"; then
@@ -89,14 +90,14 @@ fi
 
 # --- 4. Update packages -------------------------------------------------------
 echo ""
-echo "[4/10] Updating packages..."
+echo "[4/11] Updating packages..."
 apt-get update -q
 DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -q
 echo "  Done: packages updated"
 
 # --- 5. Auto power-on after power outage (Mac Mini specific) ------------------
 echo ""
-echo "[5/10] Configuring auto power-on after outage..."
+echo "[5/11] Configuring auto power-on after outage..."
 # The setpci command enables the Mac Mini to power on automatically when
 # power is restored after an outage. Without this the Mac Mini stays off.
 # Persisted via a systemd service so it survives reboots.
@@ -121,7 +122,7 @@ echo "  Done: mac-autoboot service enabled"
 
 # --- 6. Load applesmc + coretemp kernel modules at boot -----------------------
 echo ""
-echo "[6/10] Configuring kernel modules for applesmc and coretemp..."
+echo "[6/11] Configuring kernel modules for applesmc and coretemp..."
 if ! grep -q "applesmc" /etc/modules; then
   echo "applesmc" >> /etc/modules
 fi
@@ -134,7 +135,7 @@ echo "  Done: kernel modules configured"
 
 # --- 7. Install and enable mbpfan (fan control) -------------------------------
 echo ""
-echo "[7/10] Installing mbpfan..."
+echo "[7/11] Installing mbpfan..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q mbpfan
 
 # Sensible config for a headless Mac Mini server
@@ -146,9 +147,9 @@ cat > /etc/mbpfan.conf <<EOF
 # max_temp  = fans run at full speed
 min_fan_speed = 2000
 max_fan_speed = 6200
-low_temp = 55
+low_temp  = 55
 high_temp = 65
-max_temp = 80
+max_temp  = 80
 polling_interval = 7
 EOF
 
@@ -158,7 +159,7 @@ echo "  Done: mbpfan installed and running"
 
 # --- 8. QEMU Guest Agent ------------------------------------------------------
 echo ""
-echo "[8/10] Installing QEMU guest agent..."
+echo "[8/11] Installing QEMU guest agent..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q qemu-guest-agent
 systemctl enable qemu-guest-agent
 systemctl start qemu-guest-agent
@@ -166,7 +167,7 @@ echo "  Done: qemu-guest-agent installed"
 
 # --- 9. NTP time sync ---------------------------------------------------------
 echo ""
-echo "[9/10] Ensuring NTP time sync is active..."
+echo "[9/11] Ensuring NTP time sync is active..."
 systemctl enable systemd-timesyncd
 systemctl start systemd-timesyncd
 timedatectl set-ntp true
@@ -174,27 +175,52 @@ echo "  Done: NTP enabled"
 
 # --- 10. Disable HA services (re-enable after cluster is formed) --------------
 echo ""
-echo "[10/10] Disabling HA services (single-node mode)..."
+echo "[10/11] Disabling HA services (single-node mode)..."
 # HA services cause log spam and resource waste on standalone nodes.
 # Re-enable with: systemctl enable --now pve-ha-lrm pve-ha-crm corosync
 systemctl disable --now pve-ha-lrm 2>/dev/null || true
 systemctl disable --now pve-ha-crm 2>/dev/null || true
 echo "  Done: HA services disabled (re-enable after cluster formation)"
 
+# --- 11. Mount NFS storage (LittlePeggy + BigPeggy) --------------------------
+echo ""
+echo "[11/11] Mounting NFS storage from Mac Mini #1 (10.27.27.22)..."
+# LittlePeggy = Promise Pegasus 2 R8 (TB2, 20Gbps)
+# BigPeggy    = Promise Pegasus 3 R8 (TB3, capped at 20Gbps via Mac Mini TB2 chain)
+# Both hosted on MM1 (macOS) and shared over NFS to all Proxmox nodes.
+# NOTE: Volume names may differ — confirm in Disk Utility on MM1 after mounting.
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q nfs-common
+
+mkdir -p /mnt/littlepeggy /mnt/bigpeggy
+
+# Add to fstab if not already present
+if ! grep -q "littlepeggy" /etc/fstab; then
+  echo "10.27.27.22:/Volumes/LittlePeggy  /mnt/littlepeggy  nfs  defaults,_netdev,nofail  0  0" >> /etc/fstab
+fi
+if ! grep -q "bigpeggy" /etc/fstab; then
+  echo "10.27.27.22:/Volumes/BigPeggy  /mnt/bigpeggy  nfs  defaults,_netdev,nofail  0  0" >> /etc/fstab
+fi
+
+# Attempt to mount now — silently skips if MM1 is offline
+mount -a 2>/dev/null || echo "  WARNING: mount -a failed — MM1 may be offline. Mounts will activate on next boot once MM1 is up."
+echo "  Done: NFS mounts configured (LittlePeggy + BigPeggy)"
+echo "  Verify with: df -h | grep mnt"
+
 # --- Done ---------------------------------------------------------------------
 echo ""
 echo "=============================================="
-echo " Post-install complete for $HOSTNAME"
+echo "  Post-install complete for $HOSTNAME"
 echo "=============================================="
 echo ""
 echo "  NEXT STEPS:"
-echo "  1. Reboot this node:               reboot"
-echo "  2. After reboot, verify fans:      systemctl status mbpfan"
-echo "  3. Verify auto-boot service:       systemctl status mac-autoboot"
-echo "  4. Repeat on the next node before forming the cluster"
+echo "  1. Reboot this node:              reboot"
+echo "  2. After reboot, verify fans:     systemctl status mbpfan"
+echo "  3. Verify auto-boot service:      systemctl status mac-autoboot"
+echo "  4. Verify NFS mounts:             df -h | grep mnt"
+echo "  5. Repeat on the next node before forming the cluster"
 echo ""
 echo "  AFTER ALL 3 NODES ARE READY:"
-echo "  - Form the cluster from Node 1 (see proxmox/cluster-setup.md)"
-echo "  - Mount Pegasus NFS storage (see proxmox/storage-setup.md)"
-echo "  - Re-enable HA if desired after clustering"
+echo "   - Form the cluster from Node 1 (see proxmox/cluster-setup.md)"
+echo "   - Register NFS storage in Proxmox UI (see proxmox/storage-setup.md)"
+echo "   - Re-enable HA if desired after clustering"
 echo ""
