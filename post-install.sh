@@ -6,7 +6,7 @@
 # Path:   post-install.sh   (repo root — no subfolders)
 # Run:    bash post-install.sh
 #
-# Supports: Proxmox VE 7, 8, 9+ (auto-detects Debian codename)
+# Requires: Proxmox VE 9 (Debian 13 trixie)
 #
 # Steps:
 #  1.  Set hostname
@@ -135,25 +135,18 @@ ok "Hostname set to ${HOSTNAME}"
 step 2 "Fixing Proxmox repositories"
 info "Detected codename: ${DEBIAN_CODENAME}"
 
-# -- Disable enterprise PVE repo --
-# PVE 9+ uses DEB822 .sources format; PVE 7/8 used .list format.
+# -- Disable enterprise PVE repo (PVE 9 uses DEB822 .sources format) --
 if [[ -f /etc/apt/sources.list.d/pve-enterprise.sources ]]; then
   disable_deb822 /etc/apt/sources.list.d/pve-enterprise.sources
-elif [[ -f /etc/apt/sources.list.d/pve-enterprise.list ]]; then
-  sed -i 's/^deb /# deb /' /etc/apt/sources.list.d/pve-enterprise.list
-  ok "Enterprise PVE repo disabled (pve-enterprise.list)"
 else
-  warn "No enterprise PVE repo file found — may already be removed"
+  warn "pve-enterprise.sources not found — may already be removed"
 fi
 
 # -- Disable Ceph enterprise repo --
 if [[ -f /etc/apt/sources.list.d/ceph.sources ]]; then
   disable_deb822 /etc/apt/sources.list.d/ceph.sources
-elif [[ -f /etc/apt/sources.list.d/ceph.list ]]; then
-  sed -i 's/^deb /# deb /' /etc/apt/sources.list.d/ceph.list
-  ok "Ceph enterprise repo disabled (ceph.list)"
 else
-  info "No Ceph enterprise repo found — skipping"
+  info "ceph.sources not found — skipping"
 fi
 
 # -- Enable no-subscription repo using auto-detected codename --
@@ -275,19 +268,10 @@ info "Install it inside your VMs/containers, not on the Proxmox host itself"
 # ──────────────────────────────────────────────────────────────────────────────
 step 9 "Enabling NTP time sync"
 
-# Proxmox VE 9 (Debian trixie) ships chrony instead of systemd-timesyncd
-if systemctl list-units --all | grep -q "chrony.service"; then
-  systemctl enable chrony
-  systemctl start chrony
-  ok "NTP enabled via chrony"
-elif systemctl list-units --all | grep -q "systemd-timesyncd"; then
-  systemctl enable systemd-timesyncd
-  systemctl start systemd-timesyncd
-  timedatectl set-ntp true
-  ok "NTP enabled via systemd-timesyncd"
-else
-  warn "No known NTP daemon found — install chrony manually: apt-get install -y chrony"
-fi
+# PVE 9 (Debian trixie) ships chrony — enable and ensure it's running
+systemctl enable chrony
+systemctl start chrony
+ok "NTP enabled via chrony"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 10. Disable HA services (single-node until cluster is formed)
@@ -333,13 +317,13 @@ mount -a 2>/dev/null \
 
 # Register mounts as storage in Proxmox UI (idempotent — skips if already exists)
 if ! pvesm status | grep -q "^littlepeggy"; then
-  pvesm add dir littlepeggy --path /mnt/littlepeggy --content iso,backup,snippets
+  pvesm add dir littlepeggy --path /mnt/littlepeggy --content images,iso,backup,vztmpl,snippets
   ok "LittlePeggy registered as Proxmox storage"
 else
   info "LittlePeggy already registered in Proxmox storage"
 fi
 if ! pvesm status | grep -q "^bigpeggy"; then
-  pvesm add dir bigpeggy --path /mnt/bigpeggy --content iso,backup,snippets
+  pvesm add dir bigpeggy --path /mnt/bigpeggy --content images,iso,backup,vztmpl,snippets
   ok "BigPeggy registered as Proxmox storage"
 else
   info "BigPeggy already registered in Proxmox storage"
