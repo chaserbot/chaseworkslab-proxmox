@@ -270,10 +270,19 @@ info "Install it inside your VMs/containers, not on the Proxmox host itself"
 # ──────────────────────────────────────────────────────────────────────────────
 step 9 "Enabling NTP time sync"
 
-systemctl enable systemd-timesyncd
-systemctl start systemd-timesyncd
-timedatectl set-ntp true
-ok "NTP enabled via systemd-timesyncd"
+# Proxmox VE 9 (Debian trixie) ships chrony instead of systemd-timesyncd
+if systemctl list-units --all | grep -q "chrony.service"; then
+  systemctl enable chrony
+  systemctl start chrony
+  ok "NTP enabled via chrony"
+elif systemctl list-units --all | grep -q "systemd-timesyncd"; then
+  systemctl enable systemd-timesyncd
+  systemctl start systemd-timesyncd
+  timedatectl set-ntp true
+  ok "NTP enabled via systemd-timesyncd"
+else
+  warn "No known NTP daemon found — install chrony manually: apt-get install -y chrony"
+fi
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 10. Disable HA services (single-node until cluster is formed)
