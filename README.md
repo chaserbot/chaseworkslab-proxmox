@@ -71,7 +71,7 @@ chaseworkslab-homelab/
 3. Run the post-install script:
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/chaserbot/chaseworkslab-homelab/main/proxmox/post-install.sh) <node-number>
+bash <(curl -fsSL https://raw.githubusercontent.com/chaserbot/workslab-proxmox/main/proxmox/post-install.sh) <node-number>
 ```
 
 4. Reboot
