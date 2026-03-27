@@ -1,5 +1,30 @@
+# Environment & credentials
 *.env
 .env*
 secrets/
 passwords.txt
+
+# Private keys & certificates
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Proxmox API tokens
+*.token
+
+# Logs
+*.log
+logs/
+
+# Temp & backup files
+*.bak
+*.tmp
+*.swp
+*~
+
+# OS files
 .DS_Store
+Thumbs.db
