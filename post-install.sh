@@ -11,8 +11,8 @@
 # Steps:
 #  1.  Set hostname
 #  2.  Fix Proxmox repos (disable enterprise, enable no-subscription)
-#  3.  Disable subscription nag in web UI
-#  4.  Update all packages
+#  3.  Update all packages
+#  4.  Disable subscription nag in web UI (must run after package update)
 #  5.  Configure auto power-on after outage (Mac Mini — setpci)
 #  6.  Load applesmc + coretemp modules at boot
 #  7.  Install + configure mbpfan (fan control)
@@ -168,14 +168,28 @@ echo 'APT::Get::Update::SourceListWarnings::NonFreeFirmware "false";' \
 ok "Firmware nag suppressed"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. Disable subscription nag
+# 3. Update packages
 # ──────────────────────────────────────────────────────────────────────────────
-step 3 "Disabling subscription nag"
+step 3 "Updating packages"
+
+apt-get update -q
+DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -q
+ok "Packages updated"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. Disable subscription nag (must run after package update)
+# ──────────────────────────────────────────────────────────────────────────────
+step 4 "Disabling subscription nag"
+info "Running after package update so dist-upgrade cannot overwrite the patch"
 
 JSFILE="/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
 if [[ -f "$JSFILE" ]]; then
   if grep -q "No valid subscription" "$JSFILE"; then
-    sed -i "s/res === null || res === undefined ||/false || false ||/" "$JSFILE"
+    # Null out every condition in the subscription check block
+    sed -i 's/res === null ||/false ||/g'                                          "$JSFILE"
+    sed -i 's/res === undefined ||/false ||/g'                                     "$JSFILE"
+    sed -i 's/!res ||/false ||/g'                                                  "$JSFILE"
+    sed -i "s/res\.data\.status\.toLowerCase() !== 'active'/false/"               "$JSFILE"
     ok "Subscription nag disabled"
   else
     info "Pattern not found — already patched or PVE version changed"
@@ -183,15 +197,6 @@ if [[ -f "$JSFILE" ]]; then
 else
   warn "proxmoxlib.js not found — skipping nag patch"
 fi
-
-# ──────────────────────────────────────────────────────────────────────────────
-# 4. Update packages
-# ──────────────────────────────────────────────────────────────────────────────
-step 4 "Updating packages"
-
-apt-get update -q
-DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -q
-ok "Packages updated"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 5. Auto power-on after outage (Mac Mini specific)
@@ -325,6 +330,20 @@ fi
 mount -a 2>/dev/null \
   && ok "NFS mounts active — verify with: df -h | grep mnt" \
   || warn "mount -a failed — MM1 may be offline. Mounts activate on next boot once MM1 is up."
+
+# Register mounts as storage in Proxmox UI (idempotent — skips if already exists)
+if ! pvesm status | grep -q "^littlepeggy"; then
+  pvesm add dir littlepeggy --path /mnt/littlepeggy --content iso,backup,snippets
+  ok "LittlePeggy registered as Proxmox storage"
+else
+  info "LittlePeggy already registered in Proxmox storage"
+fi
+if ! pvesm status | grep -q "^bigpeggy"; then
+  pvesm add dir bigpeggy --path /mnt/bigpeggy --content iso,backup,snippets
+  ok "BigPeggy registered as Proxmox storage"
+else
+  info "BigPeggy already registered in Proxmox storage"
+fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 bar
