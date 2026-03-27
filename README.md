@@ -1,8 +1,6 @@
 # 🏠 chaseworkslab-homelab
 
-Personal homelab infrastructure — configs, scripts, and documentation.
-
-The goal: if the house burned down and new hardware showed up, this repo is everything needed to get back to a running state.
+Personal homelab infrastructure — configs, scripts, and documentation. The goal: if the house burned down and new hardware showed up, this repo is everything needed to get back to a running state.
 
 ---
 
@@ -10,17 +8,20 @@ The goal: if the house burned down and new hardware showed up, this repo is ever
 
 | Device | Role | OS |
 |---|---|---|
-| Mac Mini #1 (A1347) | NAS Brain / Pegasus DAS host | macOS |
-| Mac Mini #2 (A1347) | Proxmox Node 1 — pve1 | Proxmox VE |
-| Mac Mini #3 (A1347) | Proxmox Node 2 — pve2 | Proxmox VE |
-| Mac Mini #4 (A1347) | Proxmox Node 3 — pve3 | Proxmox VE |
+| Mac Mini #1 (A1347) — MM1 | NAS Brain / DAS host | macOS |
+| Mac Mini #2 (A1347) — MM2 | Proxmox Node 1 — pve1 | Proxmox VE |
+| Mac Mini #3 (A1347) — MM3 | Proxmox Node 2 — pve2 | Proxmox VE |
+| Mac Mini #4 (A1347) — MM4 | Proxmox Node 3 — pve3 | Proxmox VE |
+| LittlePeggy (Pegasus 2 R8) | DAS storage — Thunderbolt 2 to MM1 | — |
+| BigPeggy (Pegasus 3 R8) | DAS storage — Thunderbolt 3 to MM1 (capped at TB2) | — |
 | Ace Magician CK10 | Jellyfin (media server) | — |
 | Intel NUC5i5RYK x2 | Spare / Batocera gaming | — |
-| Pegasus DAS | Shared storage (Thunderbolt → MM1) | — |
 | Luxul ABR-5000 | Router | — |
 | Ubiquiti USW PoE 8 Lite | Switch | — |
 | Archer AX1800 | Access point | — |
 | TP-Link EAP225 Outdoor | Outdoor access point | — |
+
+> LittlePeggy and BigPeggy are Thunderbolt daisy-chained to MM1. MM1 shares both over NFS to all Proxmox nodes. See `proxmox/storage-setup.md` for full details.
 
 ---
 
@@ -41,25 +42,25 @@ Internal domain: `chaseworkslab.com`
 
 ```
 chaseworkslab-homelab/
-├── README.md ← You are here
-├── .gitignore ← Secrets and .env files excluded
+├── README.md                  ← You are here
+├── .gitignore                 ← Secrets and .env files excluded
 ├── proxmox/
-│ ├── post-install.sh ← Run on each node after fresh Proxmox install
-│ ├── cluster-setup.md ← How to form the 3-node cluster
-│ └── storage-setup.md ← How to mount Pegasus NFS on all nodes
-├── services/ ← One folder per self-hosted service
-│ ├── jellyfin/
-│ │ ├── docker-compose.yml
-│ │ └── README.md
-│ ├── arr-stack/
-│ │ ├── docker-compose.yml
-│ │ └── README.md
-│ └── ...
+│   ├── post-install.sh        ← Run on each node after fresh Proxmox install
+│   ├── cluster-setup.md       ← How to form the 3-node cluster
+│   └── storage-setup.md       ← LittlePeggy + BigPeggy NFS setup
+├── services/                  ← One folder per self-hosted service
+│   ├── jellyfin/
+│   │   ├── docker-compose.yml
+│   │   └── README.md
+│   ├── arr-stack/
+│   │   ├── docker-compose.yml
+│   │   └── README.md
+│   └── ...
 ├── network/
-│ ├── dns-records.md ← All internal DNS entries
-│ └── tailscale-setup.md ← Remote access setup
+│   ├── dns-records.md         ← All internal DNS entries
+│   └── tailscale-setup.md     ← Remote access setup
 └── scripts/
-└── ...
+    └── ...
 ```
 
 ---
@@ -77,7 +78,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/chaserbot/chaseworkslab-prox
 4. Reboot
 5. Verify fan control: `systemctl status mbpfan`
 6. Verify auto-boot service: `systemctl status mac-autoboot`
-7. See `proxmox/cluster-setup.md` to join the cluster
+7. Verify NFS mounts: `df -h | grep mnt`
+8. See `proxmox/cluster-setup.md` to join the cluster
 
 ---
 
@@ -102,12 +104,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/chaserbot/chaseworkslab-prox
 
 ## 🔒 Secrets
 
-Secrets are **never** committed to this repo.
-
-`.env` files, API keys, and passwords are excluded via `.gitignore`.
-
-Each service folder contains a `.env.example` file documenting which secrets
-are needed — fill in your own values and save as `.env` locally.
+Secrets are **never** committed to this repo. `.env` files, API keys, and passwords are excluded via `.gitignore`. Each service folder contains a `.env.example` file documenting which secrets are needed — fill in your own values and save as `.env` locally.
 
 ---
 
