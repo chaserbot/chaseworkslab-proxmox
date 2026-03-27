@@ -19,6 +19,7 @@ pvecm create chaseworkslab
 ```
 
 Verify:
+
 ```bash
 pvecm status
 ```
@@ -28,13 +29,15 @@ pvecm status
 ## Step 2 — Join Node 2 and Node 3 (run on each joining node)
 
 SSH into Node 2, then run:
+
 ```bash
-pvecm add 10.27.27.31
+pvecm add 10.27.27.101
 ```
 
 Repeat on Node 3:
+
 ```bash
-pvecm add 10.27.27.31
+pvecm add 10.27.27.101
 ```
 
 You'll be prompted for Node 1's root password each time.
@@ -55,6 +58,7 @@ All 3 nodes should show as online with no errors.
 ## Step 4 — Re-enable HA services now that cluster is formed
 
 Run on **all 3 nodes**:
+
 ```bash
 systemctl enable --now pve-ha-lrm pve-ha-crm corosync
 ```
@@ -72,8 +76,8 @@ Datacenter → Storage → Add → NFS
 
 ## Node IP Reference
 
-| Node | Hostname              | IP           |
-|------|-----------------------|--------------|
-| 1    | pve1.chaseworkslab.com | 10.27.27.31 |
-| 2    | pve2.chaseworkslab.com | 10.27.27.32 |
-| 3    | pve3.chaseworkslab.com | 10.27.27.33 |
+| Node | Hostname | IP |
+|------|------------------------|---------------|
+| 1    | pve1.chaseworkslab.com | 10.27.27.101  |
+| 2    | pve2.chaseworkslab.com | 10.27.27.102  |
+| 3    | pve3.chaseworkslab.com | 10.27.27.103  |
