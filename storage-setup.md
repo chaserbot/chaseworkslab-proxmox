@@ -61,7 +61,7 @@ macOS NFS is configured via `/etc/exports`. There is no GUI for this.
 
 #Acutal
 /Volumes/BigPeggy -alldirs -mapall=501:20 -network 10.27.27.0 -mask 255.255.255.0
-/Volumes/BigPeggy -alldirs -mapall=501:20 -network 10.27.27.0 -mask 255.255.255.0
+/Volumes/LittlePeggy -alldirs -mapall=501:20 -network 10.27.27.0 -mask 255.255.255.0
 ```
 
 > **Important:** Confirm the exact volume names in Disk Utility — they may differ from the device names above.
