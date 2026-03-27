@@ -259,14 +259,11 @@ systemctl start mbpfan
 ok "mbpfan installed and running (min 2000 RPM, max 6200 RPM)"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 8. QEMU guest agent
+# 8. QEMU guest agent (skipped — bare metal host)
 # ──────────────────────────────────────────────────────────────────────────────
-step 8 "Installing QEMU guest agent"
-
-DEBIAN_FRONTEND=noninteractive apt-get install -y -q qemu-guest-agent
-systemctl enable qemu-guest-agent
-systemctl start qemu-guest-agent
-ok "qemu-guest-agent installed and running"
+step 8 "QEMU guest agent (skipped)"
+info "qemu-guest-agent is for VMs talking to a hypervisor — not needed on bare metal"
+info "Install it inside your VMs/containers, not on the Proxmox host itself"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 9. NTP time sync
