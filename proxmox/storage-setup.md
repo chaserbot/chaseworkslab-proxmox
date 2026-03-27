@@ -1,78 +1,154 @@
-# Pegasus Storage Setup — chaseworkslab
+# DAS Storage Setup — chaseworkslab
 
-Mac Mini #1 (macOS) shares the Pegasus DAS over NFS to all 3 Proxmox nodes.
+Mac Mini #1 (`10.27.27.22`, macOS) hosts two Promise Pegasus DAS units via Thunderbolt daisy-chain and shares both over NFS to all 3 Proxmox nodes.
 
 ---
 
-## Step 1 — Enable NFS on Mac Mini #1 (macOS)
+## Devices
 
-macOS doesn't have a GUI for NFS exports. You configure it via `/etc/exports`.
+| Name | Model | Interface | TB Gen | Host |
+|---|---|---|---|---|
+| LittlePeggy | Promise Pegasus 2 R8 | Thunderbolt 2 | TB2 (20Gbps) | Mac Mini 10.27.27.22 |
+| BigPeggy | Promise Pegasus 3 R8 | Thunderbolt 3 | TB3 (40Gbps) | Mac Mini 10.27.27.22 |
+
+---
+
+## Physical Chain
+
+```
+Mac Mini A1347 (TB2, 10.27.27.22)
+    └── LittlePeggy (Pegasus 2 R8, TB2)
+            └── BigPeggy (Pegasus 3 R8, TB3)
+```
+
+> **Note:** The Mac Mini A1347 is TB2-only, so the entire chain is capped at 20Gbps regardless of BigPeggy's TB3 capability. Order does not meaningfully impact performance in this setup.
+
+---
+
+## Bandwidth Reality
+
+| Segment | Theoretical | Real-World Estimate |
+|---|---|---|
+| Mac Mini → LittlePeggy | 20Gbps (~2,500 MB/s) | 800–1,200 MB/s |
+| Mac Mini → BigPeggy (through chain) | 20Gbps shared | 800–1,200 MB/s (shared pipe) |
+| Network to Proxmox nodes (1GbE) | 1Gbps (~125 MB/s) | ~110–115 MB/s |
+| Network to Proxmox nodes (10GbE) | 10Gbps (~1,250 MB/s) | ~900–1,100 MB/s |
+
+**The network is the bottleneck, not Thunderbolt.**
+
+---
+
+## Step 1 — Configure RAID on Each Unit (macOS)
+
+Use **Promise Utility** (macOS app) to configure RAID independently on each unit:
+- Open Promise Utility on Mac Mini #1
+- Configure LittlePeggy's RAID level (confirm: RAID 5 or RAID 6?)
+- Configure BigPeggy's RAID level independently
+- Both units will appear as individual volumes in Disk Utility after RAID is set
+
+---
+
+## Step 2 — Enable NFS on Mac Mini #1 (macOS)
+
+macOS NFS is configured via `/etc/exports`. There is no GUI for this.
 
 1. Open Terminal on Mac Mini #1
 2. Create or edit `/etc/exports`:
 
 ```
-/Volumes/Pegasus -alldirs -mapall=nobody -network 10.27.27.0 -mask 255.255.255.0
+/Volumes/LittlePeggy -alldirs -mapall=nobody -network 10.27.27.0 -mask 255.255.255.0
+/Volumes/BigPeggy    -alldirs -mapall=nobody -network 10.27.27.0 -mask 255.255.255.0
 ```
 
-> Replace `/Volumes/Pegasus` with the actual mount name of your Pegasus volume.
+> **Important:** Confirm the exact volume names in Disk Utility — they may differ from the device names above.
 
-3. Start the NFS server:
+3. Start (or restart) the NFS server:
+
 ```bash
 sudo nfsd enable
 sudo nfsd start
+# If already running:
+sudo nfsd restart
 ```
 
 4. Verify exports are active:
+
 ```bash
 sudo showmount -e localhost
 ```
 
+You should see both `/Volumes/LittlePeggy` and `/Volumes/BigPeggy` listed.
+
 ---
 
-## Step 2 — Mount the NFS share on each Proxmox node
+## Step 3 — Mount NFS Shares on Each Proxmox Node
 
-Run on each node (or add to /etc/fstab for persistence):
+The post-install script (`proxmox/post-install.sh`) handles this automatically (Step 11). For manual setup or verification:
 
 ```bash
-# Test mount first
-mkdir -p /mnt/pegasus
-mount -t nfs 10.27.27.22:/Volumes/Pegasus /mnt/pegasus
+# Install NFS client
+apt install nfs-common -y
 
-# If that works, make it persistent
-echo "10.27.27.22:/Volumes/Pegasus /mnt/pegasus nfs defaults,_netdev 0 0" >> /etc/fstab
+# Create mount points
+mkdir -p /mnt/littlepeggy /mnt/bigpeggy
+
+# Test mounts
+mount -t nfs 10.27.27.22:/Volumes/LittlePeggy /mnt/littlepeggy
+mount -t nfs 10.27.27.22:/Volumes/BigPeggy /mnt/bigpeggy
+
+# Verify
+df -h | grep mnt
+```
+
+### /etc/fstab entries (persistent across reboots)
+
+```bash
+# LittlePeggy
+10.27.27.22:/Volumes/LittlePeggy  /mnt/littlepeggy  nfs  defaults,_netdev,nofail  0  0
+
+# BigPeggy
+10.27.27.22:/Volumes/BigPeggy  /mnt/bigpeggy  nfs  defaults,_netdev,nofail  0  0
+```
+
+The `nofail` flag means the node will still boot normally if MM1 is offline.
 
 ---
 
-## Step 3 — Add as Proxmox Datacenter Storage
+## Step 4 — Register as Proxmox Datacenter Storage
 
-In the Proxmox web UI:
+In the Proxmox web UI (do this once per storage, applies to all nodes in cluster):
 
-1. Datacenter → Storage → Add → NFS
-2. Fill in:
-   - **ID:** `pegasus`
-   - **Server:** `10.27.27.22` (Mac Mini #1 IP)
-   - **Export:** `/Volumes/Pegasus`
-   - **Content:** Disk image, Container, ISO, Backup — check all that apply
-3. Click Add
+**Datacenter → Storage → Add → NFS**
 
-The storage will now appear on all nodes in the cluster.
+| Field | LittlePeggy | BigPeggy |
+|---|---|---|
+| ID | `littlepeggy` | `bigpeggy` |
+| Server | `10.27.27.22` | `10.27.27.22` |
+| Export | `/Volumes/LittlePeggy` | `/Volumes/BigPeggy` |
+| Content | Disk image, ISO, Backup, Container | Disk image, ISO, Backup, Container |
+
+Or via CLI on any node:
+
+```bash
+pvesm add nfs littlepeggy --server 10.27.27.22 --export /Volumes/LittlePeggy --content images,iso,backup,vztmpl
+pvesm add nfs bigpeggy    --server 10.27.27.22 --export /Volumes/BigPeggy    --content images,iso,backup,vztmpl
+```
 
 ---
 
-## Folder Structure on Pegasus (Recommended)
+## Recommended Folder Structure
 
 ```
-/Volumes/Pegasus/
+/Volumes/LittlePeggy/          (or BigPeggy — assign based on capacity/use)
 ├── proxmox/
-│   ├── images/        ← VM disk images
-│   ├── backup/        ← Proxmox backup jobs
-│   └── iso/           ← ISO files for installs
+│   ├── images/                ← VM disk images
+│   ├── backup/                ← Proxmox backup jobs
+│   └── iso/                   ← ISO files for installs
 ├── media/
 │   ├── movies/
 │   ├── tv/
 │   └── music/
-└── containers/        ← LXC container data (appdata)
+└── containers/                ← LXC container appdata
     ├── jellyfin/
     ├── arr-stack/
     └── ...
@@ -82,7 +158,16 @@ The storage will now appear on all nodes in the cluster.
 
 ## Notes
 
-- The Pegasus **must** remain Thunderbolt-connected to Mac Mini #1
-- If Mac Mini #1 goes down, NFS shares will be unavailable and containers
-  relying on Pegasus storage will pause — this is expected behavior
-- For production resilience, consider Proxmox Backup Server on a separate node
+- Both DAS units **must** remain Thunderbolt-connected to Mac Mini #1 (`10.27.27.22`)
+- If MM1 goes down, NFS shares go offline and containers depending on them will pause — this is expected
+- NFS is strongly preferred over SMB for Proxmox/Linux nodes
+- The `_netdev` fstab flag ensures mounts happen after networking is up at boot
+
+---
+
+## Open TODOs
+
+- [ ] Confirm exact volume names after mounting (may differ from device names)
+- [ ] Confirm RAID level on each unit (RAID 5 or RAID 6?)
+- [ ] Verify `/etc/exports` config works on this version of macOS
+- [ ] Update IP Address Map in PKM vault
