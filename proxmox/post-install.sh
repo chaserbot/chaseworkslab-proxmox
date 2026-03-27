@@ -7,47 +7,47 @@
 # Example: bash post-install.sh 1
 #
 # What this script does:
-#   1. Sets hostname
-#   2. Fixes Proxmox repos (removes enterprise nag, enables no-subscription)
-#   3. Disables subscription nag in the web UI
-#   4. Updates all packages
-#   5. Enables auto power-on after outage (Mac Mini specific setpci fix)
-#   6. Ensures applesmc + coretemp kernel modules load at boot
-#   7. Installs and enables mbpfan for fan control
-#   8. Installs QEMU guest agent (best practice)
-#   9. Enables NTP time sync
-#  10. Disables HA services (single-node until cluster is formed)
+#  1. Sets hostname
+#  2. Fixes Proxmox repos (removes enterprise nag, enables no-subscription)
+#  3. Disables subscription nag in the web UI
+#  4. Updates all packages
+#  5. Enables auto power-on after outage (Mac Mini specific setpci fix)
+#  6. Ensures applesmc + coretemp kernel modules load at boot
+#  7. Installs and enables mbpfan for fan control
+#  8. Installs QEMU guest agent (best practice)
+#  9. Enables NTP time sync
+# 10. Disables HA services (single-node until cluster is formed)
 # =============================================================================
 
 set -e
 
 # --- Validate input -----------------------------------------------------------
-NODE_NUM=${1:?"Usage: $0 <node-number>  (e.g. $0 1)"}
+NODE_NUM=${1:?"Usage: $0 <node-number> (e.g. $0 1)"}
 if [[ ! "$NODE_NUM" =~ ^[1-3]$ ]]; then
   echo "ERROR: Node number must be 1, 2, or 3."
   exit 1
 fi
 
 HOSTNAME="pve${NODE_NUM}.chaseworkslab.com"
-STATIC_IP="10.27.27.3${NODE_NUM}"   # Results in .31, .32, .33
+STATIC_IP="10.27.27.10${NODE_NUM}"  # Results in .101, .102, .103
 
 echo ""
 echo "=============================================="
-echo "  chaseworkslab Proxmox Post-Install Script"
-echo "  Node:     $HOSTNAME"
-echo "  IP:       $STATIC_IP (verify this is correct)"
+echo " chaseworkslab Proxmox Post-Install Script"
+echo " Node: $HOSTNAME"
+echo " IP:   $STATIC_IP (verify this is correct)"
 echo "=============================================="
 echo ""
 read -rp "Press ENTER to continue or Ctrl+C to abort..."
 
-# --- 1. Hostname ---------------------------------------------------------------
+# --- 1. Hostname --------------------------------------------------------------
 echo ""
 echo "[1/10] Setting hostname..."
 hostnamectl set-hostname "$HOSTNAME"
 sed -i "s/^127\.0\.1\.1.*/127.0.1.1 $HOSTNAME/" /etc/hosts
 echo "  Done: hostname set to $HOSTNAME"
 
-# --- 2. Fix Proxmox repositories -----------------------------------------------
+# --- 2. Fix Proxmox repositories ----------------------------------------------
 echo ""
 echo "[2/10] Fixing Proxmox repositories..."
 
@@ -72,7 +72,7 @@ echo 'APT::Get::Update::SourceListWarnings::NonFreeFirmware "false";' \
 
 echo "  Done: repos configured"
 
-# --- 3. Disable subscription nag -----------------------------------------------
+# --- 3. Disable subscription nag ----------------------------------------------
 echo ""
 echo "[3/10] Disabling subscription nag..."
 JSFILE="/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
@@ -87,14 +87,14 @@ else
   echo "  WARNING: proxmoxlib.js not found — skipping nag patch"
 fi
 
-# --- 4. Update packages --------------------------------------------------------
+# --- 4. Update packages -------------------------------------------------------
 echo ""
 echo "[4/10] Updating packages..."
 apt-get update -q
 DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -q
 echo "  Done: packages updated"
 
-# --- 5. Auto power-on after power outage (Mac Mini specific) -------------------
+# --- 5. Auto power-on after power outage (Mac Mini specific) ------------------
 echo ""
 echo "[5/10] Configuring auto power-on after outage..."
 # The setpci command enables the Mac Mini to power on automatically when
@@ -119,7 +119,7 @@ systemctl enable mac-autoboot.service
 systemctl start mac-autoboot.service
 echo "  Done: mac-autoboot service enabled"
 
-# --- 6. Load applesmc + coretemp kernel modules at boot ------------------------
+# --- 6. Load applesmc + coretemp kernel modules at boot -----------------------
 echo ""
 echo "[6/10] Configuring kernel modules for applesmc and coretemp..."
 if ! grep -q "applesmc" /etc/modules; then
@@ -132,7 +132,7 @@ modprobe applesmc 2>/dev/null || echo "  WARNING: applesmc failed to load now (w
 modprobe coretemp 2>/dev/null || echo "  WARNING: coretemp failed to load now (will load after reboot)"
 echo "  Done: kernel modules configured"
 
-# --- 7. Install and enable mbpfan (fan control) --------------------------------
+# --- 7. Install and enable mbpfan (fan control) -------------------------------
 echo ""
 echo "[7/10] Installing mbpfan..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q mbpfan
@@ -156,7 +156,7 @@ systemctl enable mbpfan
 systemctl start mbpfan
 echo "  Done: mbpfan installed and running"
 
-# --- 8. QEMU Guest Agent -------------------------------------------------------
+# --- 8. QEMU Guest Agent ------------------------------------------------------
 echo ""
 echo "[8/10] Installing QEMU guest agent..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q qemu-guest-agent
@@ -164,7 +164,7 @@ systemctl enable qemu-guest-agent
 systemctl start qemu-guest-agent
 echo "  Done: qemu-guest-agent installed"
 
-# --- 9. NTP time sync ----------------------------------------------------------
+# --- 9. NTP time sync ---------------------------------------------------------
 echo ""
 echo "[9/10] Ensuring NTP time sync is active..."
 systemctl enable systemd-timesyncd
@@ -172,7 +172,7 @@ systemctl start systemd-timesyncd
 timedatectl set-ntp true
 echo "  Done: NTP enabled"
 
-# --- 10. Disable HA services (re-enable after cluster is formed) ---------------
+# --- 10. Disable HA services (re-enable after cluster is formed) --------------
 echo ""
 echo "[10/10] Disabling HA services (single-node mode)..."
 # HA services cause log spam and resource waste on standalone nodes.
@@ -181,16 +181,16 @@ systemctl disable --now pve-ha-lrm 2>/dev/null || true
 systemctl disable --now pve-ha-crm 2>/dev/null || true
 echo "  Done: HA services disabled (re-enable after cluster formation)"
 
-# --- Done ----------------------------------------------------------------------
+# --- Done ---------------------------------------------------------------------
 echo ""
 echo "=============================================="
-echo "  Post-install complete for $HOSTNAME"
+echo " Post-install complete for $HOSTNAME"
 echo "=============================================="
 echo ""
 echo "  NEXT STEPS:"
-echo "  1. Reboot this node:           reboot"
-echo "  2. After reboot, verify fans:  systemctl status mbpfan"
-echo "  3. Verify auto-boot service:   systemctl status mac-autoboot"
+echo "  1. Reboot this node:               reboot"
+echo "  2. After reboot, verify fans:      systemctl status mbpfan"
+echo "  3. Verify auto-boot service:       systemctl status mac-autoboot"
 echo "  4. Repeat on the next node before forming the cluster"
 echo ""
 echo "  AFTER ALL 3 NODES ARE READY:"
